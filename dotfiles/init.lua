@@ -98,6 +98,11 @@ require("lazy").setup({
       char = { enabled = true },
       search = { enabled = true },
     },
+    keys = {
+      -- Disable , and ; globally so they do nothing
+      { ",", "<Nop>", mode = { "n", "x", "o" }, desc = "Disabled" },
+      { ";", "<Nop>", mode = { "n", "x", "o" }, desc = "Disabled" },
+    },
     config = function(_, opts) --[[ ... ]]--
       require("flash").setup(opts)
 
@@ -137,6 +142,20 @@ require("lazy").setup({
           require("fzf-lua").oldfiles()
         end,
         desc = "FzfLua old files (MRU)",
+      },
+      {
+        "go",
+        function()
+          require("fzf-lua").files()
+        end,
+        desc = "FzfLua files in current dir",
+      },
+      {
+        "gw",
+        function()
+          require("fzf-lua").tags_grep_cword()
+        end,
+        desc = "FzfLua grep cword",
       },
     },
     ---@diagnostics enable: missing-fields
@@ -231,15 +250,6 @@ require("lazy").setup({
     },
   },
   {
-    "sindrets/diffview.nvim",
-    cmd = { "DiffviewOpen", "DiffviewFileHistory" },
-    opts = {}, -- Add custom configuration here if needed
-    keys = {
-      { "<leader>gd", "<cmd>DiffviewOpen<cr>", desc = "Diffview Open" },
-      { "<leader>gh", "<cmd>DiffviewFileHistory %<cr>", desc = "Diffview File History" },
-    },
-  },
-  {
     "sindrets/winshift.nvim",
     cmd = "WinShift",
     config = function()
@@ -285,12 +295,6 @@ require("lazy").setup({
     end,
   },
   {
-    'stevearc/quicker.nvim',
-    config = function()
-      require("quicker").setup()
-    end,
-  },
-  {
     "kylechui/nvim-surround",
     version = "^3.0.0", -- Use for stability; omit to use `main` branch for the latest features
     event = "VeryLazy",
@@ -302,6 +306,9 @@ require("lazy").setup({
   },
   {
     "gregorias/coerce.nvim",
+    dependencies = {
+          "gregorias/coop.nvim",
+    },
     tag = 'v4.1.0',
     config = true,
   },
@@ -352,6 +359,25 @@ require("lazy").setup({
           vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
         end,
       })
+    end,
+  },
+  {
+    "dhananjaylatkar/cscope_maps.nvim",
+    dependencies = {
+      "ibhagwan/fzf-lua", -- Use fzf-lua as the UI provider
+    },
+    opts = {
+      skip_input_prompt = true,
+      cscope = {
+        exec = "gtags-cscope", -- Path to executable
+        db_file = "GTAGS",     -- Look for gtags database
+        picker = "fzf-lua",    -- Set fzf-lua as the result filter/picker
+        skip_picker_for_single_result = true, -- Jump directly if only one match
+      },
+      disable_maps = false, 
+    },
+    config = function(_, opts)
+      require("cscope_maps").setup(opts)
     end,
   },
 })
@@ -500,3 +526,5 @@ vim.api.nvim_create_autocmd(
     callback = set_tmux_title,
   }
 )
+
+vim.keymap.set('n', ',x', ':tabclose<CR>', { noremap = true, silent = true, desc = 'Close current tab' })
