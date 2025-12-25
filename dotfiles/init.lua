@@ -499,7 +499,7 @@ vim.cmd('color github')
 
 local function git_combined_diff(opts)
     local args = opts.args ~= "" and opts.args or "HEAD"
-    
+
     -- 1. Get list of files
     local cmd = string.format("git diff --name-only %s", args)
     local handle = io.popen(cmd)
@@ -536,42 +536,35 @@ local function git_combined_diff(opts)
 
     -- 4. Build the concatenated content
     for _, file in ipairs(files) do
-        -- UNIQUE HEADERS: Different text ensures they don't fold together
-        local left_header  = string.format("--- FILE: %s --- (OLD)", file)
-        local right_header = string.format("--- FILE: %s --- (NEW)", file)
+        local header = string.format("--- FILE: %s ---", file)
+        local left_separator = string.rep(">", #header)
+        local right_separator = string.rep("<", #header)
+
+        -- Add headers to both sides
+        table.insert(left_lines, header)
+        table.insert(left_lines, right_separator)
+        table.insert(right_lines, header)
+        table.insert(right_lines, left_separator)
 
         -- Fetch contents
         local left_content = get_git_content(base_ref, file)
         local right_content = target_ref ~= "" and get_git_content(target_ref, file) or nil
-        if not right_content then
-            right_content = {}
+
+        -- Append file content to Left
+        for _, line in ipairs(left_content) do table.insert(left_lines, line) end
+
+        -- Append file content to Right (if target_ref is empty, we use disk file)
+        if right_content then
+            for _, line in ipairs(right_content) do table.insert(right_lines, line) end
+        else
+            -- Read from actual disk if no second changeset provided
             local f = io.open(file, "r")
             if f then
-                for line in f:lines() do table.insert(right_content, line) end
+                for line in f:lines() do table.insert(right_lines, line) end
                 f:close()
             end
         end
-
-        -- SYMMETRIC PADDING:
-        -- Calculate max lines to ensure both buffers are the exact same length
-        local max_height = math.max(#left_content, #right_content)
-
-        -- 1. Add the Headers
-        table.insert(left_lines, left_header)
-        table.insert(right_lines, right_header)
-
-        -- 2. Add Content + Empty Line Padding
-        for i = 1, max_height do
-            table.insert(left_lines, left_content[i] or "")
-            table.insert(right_lines, right_content[i] or "")
-             -- 3. Add a spacer
-            if i < #files then
-              table.insert(left_lines, "")
-              table.insert(right_lines, "")
-            end
-        end
-
-     end
+    end
 
     -- 5. Set buffer content and options
     local function setup_buf(buf, lines, name)
@@ -589,6 +582,9 @@ local function git_combined_diff(opts)
         vim.api.nvim_buf_call(buf, function()
             -- Highlight the "--- FILE: ---" line
             vim.fn.matchadd("CombinedDiffHeader", "^--- FILE:.*")
+            -- Highlight the "=====" separator line
+            vim.fn.matchadd("CombinedDiffHeader", "^>>>>*")
+            vim.fn.matchadd("CombinedDiffHeader", "^<<<<*")
         end)
     end
 
