@@ -372,12 +372,60 @@ require("lazy").setup({
         exec = "gtags-cscope", -- Path to executable
         db_file = "GTAGS",     -- Look for gtags database
         picker = "fzf-lua",    -- Set fzf-lua as the result filter/picker
-        skip_picker_for_single_result = true, -- Jump directly if only one match
+        skip_picker_for_single_result = false, -- Jump directly if only one match
       },
       disable_maps = false, 
     },
     config = function(_, opts)
       require("cscope_maps").setup(opts)
+    end,
+  },
+  {
+    "stevearc/aerial.nvim",
+    opts = {},
+    config = function()
+      require("aerial").setup({
+        -- Optional: Set keymaps to toggle aerial
+        on_attach = function(bufnr)
+          -- Jump forwards/backwards with '{' and '}'
+          vim.keymap.set("n", "{", "<cmd>AerialPrev<CR>", { buffer = bufnr })
+          vim.keymap.set("n", "}", "<cmd>AerialNext<CR>", { buffer = bufnr })
+        end,
+      })
+      -- You probably also want to set a keymap to toggle aerial
+      vim.keymap.set("n", "<leader>a", "<cmd>AerialToggle!<CR>")
+    end,
+  },
+  {
+    "rmagatti/auto-session",
+    lazy = false,
+
+    ---enables autocomplete for opts
+    ---@module "auto-session"
+    ---@type AutoSession.Config
+    opts = {
+      suppressed_dirs = { "~/", "~/Projects", "~/Downloads", "/" },
+      -- log_level = 'debug',
+    },
+  },
+  {
+    "preservim/tagbar",
+    ft = { "autohotkey" },
+    cmd = "TagbarToggle",
+    keys = { { "<F8>", "<cmd>TagbarToggle<CR>", desc = "Tagbar" } },
+    config = function()
+      vim.g.tagbar_type_autohotkey = {
+        ctagstype = "AutoHotkey", -- MUST match --langdef=AutoHotkey
+        kinds = {
+          "c:Classes",
+          "f:Functions",
+          "k:Hotkeys",
+          "s:Hotstrings",
+          "l:Labels",
+          "v:Variables",
+        },
+        sort = 0,
+      }
     end,
   },
 })
