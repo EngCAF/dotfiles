@@ -497,51 +497,114 @@ vim.opt.diffopt:append('internal,algorithm:patience')
 vim.opt.clipboard:append('unnamed,unnamedplus')
 vim.cmd('color github')
 
--- Vimdiff helper (Vimscript embedded in Lua)
-vim.cmd([[
-function! Vimdiff()
-    let lines = getline(0,'$')
-    let la = []
-    let lb = []
-    for line in lines
-        if line[0] == '-'
-            call add(la, ' ' . line[1:])
-        elseif line[0] == '+'
-            call add(lb, ' ' . line[1:])
-        else
-            call add(la, line)
-            call add(lb, line)
-        endif
-    endfor
-    tabnew
-    set bt=nofile
-    vertical new
-    set bt=nofile
-    call append(0, la)
-    diffthis
-    exe "normal \<C-W>l"
-    call append(0, lb)
-    diffthis
-    call mark#ClearAll()
-    call mark#DoMark('^diff \-\-.*$')
-    "call ResetDiffChar(0)
-    call feedkeys("gg")
-endfunction
-]])
+local function git_combined_diff(opts)
+    local args = opts.args ~= "" and opts.args or "HEAD"
+    
+    -- 1. Get list of files
+    local cmd = string.format("git diff --name-only %s", args)
+    local handle = io.popen(cmd)
+    if not handle then return end
+    local files_str = handle:read("*a")
+    handle:close()
 
-local map = vim.keymap.set
-map("n", "<localleader>v1", "<cmd>Git diff<CR><cmd>call Vimdiff()<CR>", { silent = true })
-map("n", "<localleader>v2", "<cmd>call Vimdiff()<CR>", { silent = true })
-map("n", "<localleader>v3", "<cmd>tabclose<bar>bdelete<CR>", { silent = true })
-map("n", "<space>r1", "<cmd>silent! lgrep <cword> % | lopen<cr>")
-map("n", "<space>r2", "<cmd>silent! lgrep <cword> %:h | lopen<cr>")
-map("n", "<space>r3", "<cmd>silent! lgrep <cword> . | lopen<cr>")
--- visual selection
-map("v", "<space>r1", "y<cmd>silent! lgrep <C-r>\" % | lopen<cr>")
-map("v", "<space>r2", "y<cmd>silent! lgrep <C-r>\" %:h | lopen<cr>")
-map("v", "<space>r3", "y<cmd>silent! lgrep <C-r>\" . | lopen<cr>")
--- tag search
-map("n", "<space>r4", "<cmd>silent! lgrep #<cword> %:h | lopen<cr>")
+    local files = {}
+    for file in files_str:gmatch("[^\r\n]+") do table.insert(files, file) end
+    if #files == 0 then print("No changes found."); return end
+
+    local base_ref = args:match("([^%.]+)%.%.") or args
+    local target_ref = args:match("%.%.([^%.]+)") or ""
+
+    -- 2. Create a new tab and two side-by-side buffers
+    vim.cmd("tabnew")
+    local left_buf = vim.api.nvim_get_current_buf()
+    vim.cmd("rightbelow vnew")
+    local right_buf = vim.api.nvim_get_current_buf()
+
+    local left_lines = {}
+    local right_lines = {}
+
+    -- 3. Helper to fetch file content
+    local function get_git_content(ref, file)
+        local git_cmd = string.format("git show %s:%s 2>/dev/null", ref, file)
+        local h = io.popen(git_cmd)
+        if not h then return {} end
+        local content = {}
+        for line in h:lines() do table.insert(content, line) end
+        h:close()
+        return content
+    end
+
+    -- 4. Build the concatenated content
+    for _, file in ipairs(files) do
+        -- UNIQUE HEADERS: Different text ensures they don't fold together
+        local left_header  = string.format("--- FILE: %s --- (OLD)", file)
+        local right_header = string.format("--- FILE: %s --- (NEW)", file)
+
+        -- Fetch contents
+        local left_content = get_git_content(base_ref, file)
+        local right_content = target_ref ~= "" and get_git_content(target_ref, file) or nil
+        if not right_content then
+            right_content = {}
+            local f = io.open(file, "r")
+            if f then
+                for line in f:lines() do table.insert(right_content, line) end
+                f:close()
+            end
+        end
+
+        -- SYMMETRIC PADDING:
+        -- Calculate max lines to ensure both buffers are the exact same length
+        local max_height = math.max(#left_content, #right_content)
+
+        -- 1. Add the Headers
+        table.insert(left_lines, left_header)
+        table.insert(right_lines, right_header)
+
+        -- 2. Add Content + Empty Line Padding
+        for i = 1, max_height do
+            table.insert(left_lines, left_content[i] or "")
+            table.insert(right_lines, right_content[i] or "")
+             -- 3. Add a spacer
+            if i < #files then
+              table.insert(left_lines, "")
+              table.insert(right_lines, "")
+            end
+        end
+
+     end
+
+    -- 5. Set buffer content and options
+    local function setup_buf(buf, lines, name)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.bo[buf].buftype = "nofile"
+        vim.bo[buf].bufhidden = "wipe"
+        vim.bo[buf].swapfile = false
+        pcall(vim.api.nvim_buf_set_name, buf, name .. " [" .. args .. "]")
+
+        -- Create a custom high-contrast highlight group
+        -- This creates Black text on a Bright Yellow background
+        vim.cmd("highlight CombinedDiffHeader guifg=#000000 guibg=#EBCB8B gui=bold")
+
+        -- Apply the high-contrast style to the headers
+        vim.api.nvim_buf_call(buf, function()
+            -- Highlight the "--- FILE: ---" line
+            vim.fn.matchadd("CombinedDiffHeader", "^--- FILE:.*")
+        end)
+    end
+
+    setup_buf(left_buf, left_lines, "OLD")
+    setup_buf(right_buf, right_lines, "NEW")
+
+    -- 6. Enable Diff Mode
+    vim.cmd("windo diffthis")
+end
+
+vim.api.nvim_create_user_command('GdiffCombined', git_combined_diff, { nargs = '?' })
+
+vim.keymap.set("n", "\\gd", function()
+  -- opens ":" command-line with the command prefilled, cursor at end
+  vim.fn.feedkeys(":GdiffCombined ", "n")
+end, { noremap = true, silent = true, desc = "Prompt :GdiffCombined [arg]" })
 
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(ev)
@@ -576,3 +639,10 @@ vim.api.nvim_create_autocmd(
 )
 
 vim.keymap.set('n', ',x', ':tabclose<CR>', { noremap = true, silent = true, desc = 'Close current tab' })
+vim.keymap.set("n", "<space>r1", "<cmd>silent! lgrep <cword> % | lopen<cr>")
+vim.keymap.set("n", "<space>r2", "<cmd>silent! lgrep <cword> %:h | lopen<cr>")
+vim.keymap.set("n", "<space>r3", "<cmd>silent! lgrep <cword> . | lopen<cr>")
+vim.keymap.set("v", "<space>r1", "y<cmd>silent! lgrep <C-r>\" % | lopen<cr>")
+vim.keymap.set("v", "<space>r2", "y<cmd>silent! lgrep <C-r>\" %:h | lopen<cr>")
+vim.keymap.set("v", "<space>r3", "y<cmd>silent! lgrep <C-r>\" . | lopen<cr>")
+vim.keymap.set("n", "<space>r4", "<cmd>silent! lgrep #<cword> %:h | lopen<cr>")
