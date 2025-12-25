@@ -497,12 +497,13 @@ vim.opt.diffopt:append('internal,algorithm:patience')
 vim.opt.clipboard:append('unnamed,unnamedplus')
 vim.cmd('color github')
 
-local function git_combined_diff(opts)
-    local args = opts.args ~= "" and opts.args or "HEAD"
 
-    -- 1. Get list of files
-    local cmd = string.format("git diff --name-only %s", args)
-    local handle = io.popen(cmd)
+local function git_combined_diff(opts)
+    local user_args = opts.args
+
+    -- 1. Get the list of files using the exact string the user provided
+    local list_cmd = string.format("git diff --name-only %s", user_args)
+    local handle = io.popen(list_cmd)
     if not handle then return end
     local files_str = handle:read("*a")
     handle:close()
@@ -511,78 +512,83 @@ local function git_combined_diff(opts)
     for file in files_str:gmatch("[^\r\n]+") do table.insert(files, file) end
     if #files == 0 then print("No changes found."); return end
 
-    local base_ref = args:match("([^%.]+)%.%.") or args
-    local target_ref = args:match("%.%.([^%.]+)") or ""
+    -- 2. Resolve the "Left" and "Right" sides using Git's logic
+    -- We use 'git rev-parse' to figure out what the user meant
+    local left_ref = "HEAD"
+    local right_ref = "" -- Default to working directory (disk)
 
-    -- 2. Create a new tab and two side-by-side buffers
+    -- Detect '--cached' or '--staged'
+    local is_cached = user_args:find("--cached") or user_args:find("--staged")
+
+    -- Split args to find the revision part (the part before '--' if present)
+    local rev_part = user_args:match("^(.-)%s%-%-") or user_args
+
+    if rev_part:find("%.%.%.") then
+        left_ref = vim.fn.system(string.format("git merge-base %s", rev_part:gsub("%.%.%.", " "))):gsub("%s+", "")
+        right_ref = rev_part:match("%.%.%.([^%s]+)")
+    elseif rev_part:find("%.%.") then
+        left_ref = rev_part:match("([^%.%s]+)%.%.")
+        right_ref = rev_part:match("%.%.([^%.%s]+)")
+    elseif is_cached then
+        left_ref = "HEAD"
+        right_ref = ":0" -- The Index
+    elseif rev_part ~= "" and not rev_part:find("^-") then
+        -- Handle single ref like 'HEAD~1' or 'master'
+        local first_word = rev_part:match("^(%S+)")
+        -- Verify if it's a valid git object
+        local verify = os.execute(string.format("git rev-parse --verify %s >/dev/null 2>&1", first_word))
+        if verify == 0 then
+            left_ref = first_word
+            right_ref = "" -- Compare against disk
+        end
+    end
+
+    -- 3. Create UI
     vim.cmd("tabnew")
     local left_buf = vim.api.nvim_get_current_buf()
     vim.cmd("rightbelow vnew")
     local right_buf = vim.api.nvim_get_current_buf()
 
-    local left_lines = {}
-    local right_lines = {}
+    local left_lines, right_lines = {}, {}
 
-    -- 3. Helper to fetch file content
     local function get_git_content(ref, file)
-        local git_cmd = string.format("git show %s:%s 2>/dev/null", ref, file)
-        local h = io.popen(git_cmd)
-        if not h then return {} end
+        if ref == "" then -- Read from disk
+            local f = io.open(file, "r")
+            if not f then return {"<File deleted or not found>"} end
+            local content = {}
+            for line in f:lines() do table.insert(content, line) end
+            f:close()
+            return content
+        end
+        local h = io.popen(string.format("git show %s:%s 2>/dev/null", ref, file))
         local content = {}
-        for line in h:lines() do table.insert(content, line) end
-        h:close()
+        if h then for line in h:lines() do table.insert(content, line) end h:close() end
         return content
     end
 
-    -- 4. Build the concatenated content
+    -- 4. Build Content
     for _, file in ipairs(files) do
         local header = string.format("--- FILE: %s ---", file)
-        local left_separator = string.rep(">", #header)
-        local right_separator = string.rep("<", #header)
-
-        -- Add headers to both sides
         table.insert(left_lines, header)
-        table.insert(left_lines, right_separator)
+        table.insert(left_lines, string.rep(">", #header))
         table.insert(right_lines, header)
-        table.insert(right_lines, left_separator)
+        table.insert(right_lines, string.rep("<", #header))
 
-        -- Fetch contents
-        local left_content = get_git_content(base_ref, file)
-        local right_content = target_ref ~= "" and get_git_content(target_ref, file) or nil
+        local l_cont = get_git_content(left_ref, file)
+        local r_cont = get_git_content(right_ref, file)
 
-        -- Append file content to Left
-        for _, line in ipairs(left_content) do table.insert(left_lines, line) end
-
-        -- Append file content to Right (if target_ref is empty, we use disk file)
-        if right_content then
-            for _, line in ipairs(right_content) do table.insert(right_lines, line) end
-        else
-            -- Read from actual disk if no second changeset provided
-            local f = io.open(file, "r")
-            if f then
-                for line in f:lines() do table.insert(right_lines, line) end
-                f:close()
-            end
-        end
+        for _, l in ipairs(l_cont) do table.insert(left_lines, l) end
+        for _, r in ipairs(r_cont) do table.insert(right_lines, r) end
     end
 
-    -- 5. Set buffer content and options
+    -- 5. Finalize Buffers
     local function setup_buf(buf, lines, name)
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-        vim.bo[buf].buftype = "nofile"
-        vim.bo[buf].bufhidden = "wipe"
-        vim.bo[buf].swapfile = false
-        pcall(vim.api.nvim_buf_set_name, buf, name .. " [" .. args .. "]")
-
-        -- Create a custom high-contrast highlight group
-        -- This creates Black text on a Bright Yellow background
+        vim.bo[buf].buftype, vim.bo[buf].bufhidden, vim.bo[buf].filetype = "nofile", "wipe", "diff"
+        pcall(vim.api.nvim_buf_set_name, buf, name .. " [" .. (user_args ~= "" and user_args or "WD") .. "]")
         vim.cmd("highlight CombinedDiffHeader guifg=#000000 guibg=#EBCB8B gui=bold")
-
-        -- Apply the high-contrast style to the headers
         vim.api.nvim_buf_call(buf, function()
-            -- Highlight the "--- FILE: ---" line
             vim.fn.matchadd("CombinedDiffHeader", "^--- FILE:.*")
-            -- Highlight the "=====" separator line
             vim.fn.matchadd("CombinedDiffHeader", "^>>>>*")
             vim.fn.matchadd("CombinedDiffHeader", "^<<<<*")
         end)
@@ -590,12 +596,10 @@ local function git_combined_diff(opts)
 
     setup_buf(left_buf, left_lines, "OLD")
     setup_buf(right_buf, right_lines, "NEW")
-
-    -- 6. Enable Diff Mode
     vim.cmd("windo diffthis")
 end
 
-vim.api.nvim_create_user_command('GdiffCombined', git_combined_diff, { nargs = '?' })
+vim.api.nvim_create_user_command('GdiffCombined', git_combined_diff, { nargs = '*' })
 
 vim.keymap.set("n", "\\gd", function()
   -- opens ":" command-line with the command prefilled, cursor at end
