@@ -208,34 +208,6 @@ require("lazy").setup({
         mode = "n",
       },
     },
-    config = function(_, opts)
-      require("toggleterm").setup(opts)
-
-      local function toggle_term_mode()
-        local m = vim.fn.mode()
-        if m == "t" then
-          -- terminal insert -> terminal normal
-          vim.api.nvim_feedkeys(
-            vim.api.nvim_replace_termcodes("<C-\\><C-n>", true, false, true),
-            "n",
-            false
-          )
-        else
-          -- terminal normal (or normal) -> terminal insert
-          vim.cmd("startinsert")
-        end
-      end
-
-      vim.api.nvim_create_autocmd("TermOpen", {
-        pattern = "term://*",
-        callback = function(ev)
-          local b = ev.buf
-          -- works in BOTH terminal-insert and terminal-normal
-          vim.keymap.set("t", "<C-,>", toggle_term_mode, { buffer = b, silent = true, desc = "Toggle terminal insert/normal" })
-          vim.keymap.set("n", "<C-,>", toggle_term_mode, { buffer = b, silent = true, desc = "Toggle terminal insert/normal" })
-        end,
-      })
-    end,
   },
   {
     "declancm/windex.nvim",
@@ -601,10 +573,16 @@ end
 
 vim.api.nvim_create_user_command('GdiffCombined', git_combined_diff, { nargs = '*' })
 
-vim.keymap.set("n", "\\gd", function()
+vim.keymap.set("n", "\\gd1", function()
   -- opens ":" command-line with the command prefilled, cursor at end
   vim.fn.feedkeys(":GdiffCombined ", "n")
 end, { noremap = true, silent = true, desc = "Prompt :GdiffCombined [arg]" })
+
+vim.keymap.set("n", "\\gd2", ":GdiffCombined <C-R><C-W>~1..<C-R><C-W><CR>", {
+  noremap = true,
+  silent = false,
+  desc = "GdiffCombined current_file~ then complete and execute"
+})
 
 vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(ev)
