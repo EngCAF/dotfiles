@@ -1,3 +1,5 @@
+vim.cmd('source ' .. vim.fn.expand('~/.cache/calendar.vim/credentials.vim'))
+vim.g.python3_host_prog = 'python3'
 -- Make sure to setup `mapleader` and `maplocalleader` before
 -- loading lazy.nvim so that mappings are correct.
 -- This is also a good place to setup other settings (vim.opt)
@@ -55,6 +57,11 @@ require("lazy").setup({
   'Chiel92/vim-autoformat',
   'preservim/nerdtree',
 
+  {
+      'raghur/vim-ghost',
+      build = ':GhostInstall', -- This runs the python setup script
+      lazy = false,            -- Load immediately so it can listen to the browser
+  },
   -- Marks
   {
     'inkarkat/vim-mark',
@@ -139,9 +146,12 @@ require("lazy").setup({
       {
         "gm",
         function()
-          require("fzf-lua").oldfiles()
+          require("fzf-lua").oldfiles({
+            cwd_only = false,
+            include_current_session = true  -- Add this line
+          })
         end,
-        desc = "FzfLua old files (MRU)",
+        desc = "FzfLua old files (MRU) + Buffers",
       },
       {
         "go",
@@ -292,6 +302,9 @@ require("lazy").setup({
       -- this is equivalent to setup({}) function
   },
   {
+      'itchyny/calendar.vim',
+  },
+  {
     "christoomey/vim-tmux-navigator",
     cmd = {
       "TmuxNavigateLeft",
@@ -345,6 +358,11 @@ require("lazy").setup({
         db_file = "GTAGS",     -- Look for gtags database
         picker = "fzf-lua",    -- Set fzf-lua as the result filter/picker
         skip_picker_for_single_result = false, -- Jump directly if only one match
+      },
+      db_build_cmd = {
+        script = "ttags",
+        arags = { "-i "},
+
       },
       disable_maps = false, 
     },
@@ -473,8 +491,19 @@ vim.cmd('color github')
 local function git_combined_diff(opts)
     local user_args = opts.args
 
+    local buf_path = vim.api.nvim_buf_get_name(0)
+    local buf_dir = buf_path ~= "" and vim.fn.fnamemodify(buf_path, ":h") or vim.fn.getcwd()
+    local git_root = vim.trim(vim.fn.system(string.format("git -C %s rev-parse --show-toplevel", vim.fn.shellescape(buf_dir))))
+
+    if vim.v.shell_error ~= 0 then
+      print("Not a git repository")
+      return
+    end
+
+    local git_cmd_prefix = string.format("git -C %s ", vim.fn.shellescape(git_root))
+
     -- 1. Get the list of files using the exact string the user provided
-    local list_cmd = string.format("git diff --name-only %s", user_args)
+    local list_cmd = string.format("%sdiff --name-only %s", git_cmd_prefix, user_args)
     local handle = io.popen(list_cmd)
     if not handle then return end
     local files_str = handle:read("*a")
@@ -496,7 +525,7 @@ local function git_combined_diff(opts)
     local rev_part = user_args:match("^(.-)%s%-%-") or user_args
 
     if rev_part:find("%.%.%.") then
-        left_ref = vim.fn.system(string.format("git merge-base %s", rev_part:gsub("%.%.%.", " "))):gsub("%s+", "")
+        left_ref = vim.fn.system(string.format("%smerge-base %s", git_cmd_prefix, rev_part:gsub("%.%.%.", " "))):gsub("%s+", "")
         right_ref = rev_part:match("%.%.%.([^%s]+)")
     elseif rev_part:find("%.%.") then
         left_ref = rev_part:match("([^%.%s]+)%.%.")
@@ -508,7 +537,7 @@ local function git_combined_diff(opts)
         -- Handle single ref like 'HEAD~1' or 'master'
         local first_word = rev_part:match("^(%S+)")
         -- Verify if it's a valid git object
-        local verify = os.execute(string.format("git rev-parse --verify %s >/dev/null 2>&1", first_word))
+        local verify = os.execute(string.format("%srev-parse --verify %s >/dev/null 2>&1", git_cmd_prefix, first_word))
         if verify == 0 then
             left_ref = first_word
             right_ref = "" -- Compare against disk
@@ -525,14 +554,14 @@ local function git_combined_diff(opts)
 
     local function get_git_content(ref, file)
         if ref == "" then -- Read from disk
-            local f = io.open(file, "r")
+            local f = io.open(git_root .. "/" .. file, "r")
             if not f then return {"<File deleted or not found>"} end
             local content = {}
             for line in f:lines() do table.insert(content, line) end
             f:close()
             return content
         end
-        local h = io.popen(string.format("git show %s:%s 2>/dev/null", ref, file))
+        local h = io.popen(string.format("%sshow %s:%s 2>/dev/null", git_cmd_prefix, ref, file))
         local content = {}
         if h then for line in h:lines() do table.insert(content, line) end h:close() end
         return content
@@ -624,3 +653,23 @@ vim.keymap.set("v", "<space>r1", "y<cmd>silent! lgrep <C-r>\" % | lopen<cr>")
 vim.keymap.set("v", "<space>r2", "y<cmd>silent! lgrep <C-r>\" %:h | lopen<cr>")
 vim.keymap.set("v", "<space>r3", "y<cmd>silent! lgrep <C-r>\" . | lopen<cr>")
 vim.keymap.set("n", "<space>r4", "<cmd>silent! lgrep #<cword> %:h | lopen<cr>")
+
+vim.api.nvim_create_user_command('CsUpdateCurrent', function()
+  local current_file = vim.fn.expand('%:p')
+  local current_filename = vim.fn.expand('%:t') -- Capture filename before async
+
+  vim.system({ 'gtags', '--single-update', current_file }, { text = true }, function(obj)
+    -- Use vim.schedule to safely call vim functions from async context
+    vim.schedule(function()
+      if obj.code == 0 then
+        print('Updated GTAGS for: ' .. current_filename)
+      else
+        print('Failed to update GTAGS: ' .. (obj.stderr or 'unknown error'))
+      end
+    end)
+  end)
+end, {})
+
+
+
+vim.keymap.set("t", "jk", [[<C-\><C-n>]], { desc = "Terminal: normal mode" })
