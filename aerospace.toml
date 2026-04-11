@@ -1,0 +1,142 @@
+# Aerospace Configuration
+# For more info: https://nikitabobko.github.io/AeroSpace/guide
+
+config-version = 2
+after-startup-command = []
+start-at-login = false
+enable-normalization-flatten-containers = true
+enable-normalization-opposite-orientation-for-nested-containers = true
+accordion-padding = 30
+default-root-container-layout = "tiles"
+default-root-container-orientation = "auto"
+on-focused-monitor-changed = ["move-mouse monitor-lazy-center"]
+automatically-unhide-macos-hidden-apps = false
+
+persistent-workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
+[key-mapping]
+    preset = "qwerty"
+
+[gaps]
+    inner.horizontal = 0
+    inner.vertical =   0
+    outer.left =       0
+    outer.bottom =     0
+    outer.top =        0
+    outer.right =      0
+
+# ==========================================================
+# TIPS FOR MEMORIZING SHORTCUTS
+# ==========================================================
+# 1. NAVIGATION (Always available):
+#    - alt + h/j/k/l    = Focus window (Vim directions)
+#
+# 2. MODES (Press once, then use h/j/k/l):
+#    - alt-m: MOVE      (Mnemonic: Move)
+#    - alt-w: SWAP      (Mnemonic: Swap)
+#    - alt-i: JOIN      (Mnemonic: joIn)
+#    - alt-r: RESIZE    (Mnemonic: Resize)
+#    - alt-p: PLACEMENT (Mnemonic: Placement)
+#
+# 3. OTHER:
+#    - alt-s: SERVICE (Reload config, etc.)
+#    - alt-f: FULLSCREEN
+# ==========================================================
+
+[mode.main.binding]
+    # --- Focus (Navigation) ---
+    alt-h = "focus left"
+    alt-j = "focus down"
+    alt-k = "focus up"
+    alt-l = "focus right"
+
+    # --- Mode Entry ---
+    alt-m = ['mode move', 'exec-and-forget osascript -e "display notification \"Press ESC to exit\" with title \"Move Mode Active\""']
+    alt-w = ['mode swap', 'exec-and-forget osascript -e "display notification \"Press ESC to exit\" with title \"Swap Mode Active\""']
+    alt-i = ['mode join', 'exec-and-forget osascript -e "display notification \"Press ESC to exit\" with title \"Join Mode Active\""']
+    alt-r = ['mode resize', 'exec-and-forget osascript -e "display notification \"Press ESC to exit\" with title \"Resize Mode Active\""']
+    alt-p = "mode placement"    # Change layout/placement (Auto-exits)
+    alt-s = "mode service"      # Service menu (Reload, etc.) (Auto-exits)
+
+    # --- Quick Actions ---
+    alt-f = "fullscreen"
+    alt-tab = "workspace-back-and-forth"
+    alt-shift-tab = "move-workspace-to-monitor --wrap-around next"
+    alt-minus = "resize smart -30"
+    alt-equal = "resize smart +30"
+
+    # --- Workspaces ---
+    alt-1 = "workspace 1"
+    alt-2 = "workspace 2"
+    alt-3 = "workspace 3"
+    alt-4 = "workspace 4"
+    alt-5 = "workspace 5"
+    alt-6 = "workspace 6"
+    alt-7 = "workspace 7"
+    alt-8 = "workspace 8"
+    alt-9 = "workspace 9"
+
+    alt-shift-1 = "move-node-to-workspace 1"
+    alt-shift-2 = "move-node-to-workspace 2"
+    alt-shift-3 = "move-node-to-workspace 3"
+    alt-shift-4 = "move-node-to-workspace 4"
+    alt-shift-5 = "move-node-to-workspace 5"
+    alt-shift-6 = "move-node-to-workspace 6"
+    alt-shift-7 = "move-node-to-workspace 7"
+    alt-shift-8 = "move-node-to-workspace 8"
+    alt-shift-9 = "move-node-to-workspace 9"
+
+# --- MOVE MODE ---
+[mode.move.binding]
+    h = "move left"
+    j = "move down"
+    k = "move up"
+    l = "move right"
+    esc = "mode main"
+    enter = "mode main"
+
+# --- SWAP MODE ---
+[mode.swap.binding]
+    h = "swap left"
+    j = "swap down"
+    k = "swap up"
+    l = "swap right"
+    esc = "mode main"
+    enter = "mode main"
+
+# --- JOIN MODE ---
+[mode.join.binding]
+    h = "join-with left"
+    j = "join-with down"
+    k = "join-with up"
+    l = "join-with right"
+    esc = "mode main"
+    enter = "mode main"
+
+# --- RESIZE MODE ---
+[mode.resize.binding]
+    h = "resize width -30"
+    l = "resize width +30"
+    k = "resize height -30"
+    j = "resize height +30"
+    esc = "mode main"
+    enter = "mode main"
+
+# --- PLACEMENT MODE ---
+[mode.placement.binding]
+    t = ["layout tiles", "mode main"]
+    a = ["layout accordion", "mode main"]
+    h = ["layout horizontal", "mode main"]
+    v = ["layout vertical", "mode main"]
+    o = ["layout tiles horizontal vertical", "mode main"]
+    esc = "mode main"
+    enter = "mode main"
+
+# --- SERVICE MODE ---
+[mode.service.binding]
+    r = ["reload-config", "mode main"]
+    shift-r = ["flatten-workspace-tree", "mode main"]
+    f = ["layout floating tiling", "mode main"]
+    backspace = ["close-all-windows-but-current", "mode main"]
+    esc = "mode main"
+    enter = "mode main"
