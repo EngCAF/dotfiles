@@ -1,4 +1,7 @@
-vim.cmd('source ' .. vim.fn.expand('~/.cache/calendar.vim/credentials.vim'))
+local calendar_creds = vim.fn.expand('~/.cache/calendar.vim/credentials.vim')
+if vim.fn.filereadable(calendar_creds) == 1 then
+  vim.cmd('source ' .. vim.fn.fnameescape(calendar_creds))
+end
 vim.g.python3_host_prog = 'python3'
 -- Make sure to setup `mapleader` and `maplocalleader` before
 -- loading lazy.nvim so that mappings are correct.
@@ -12,6 +15,27 @@ vim.o.grepformat = "%f:%l:%c:%m"
 vim.opt.foldenable = true
 vim.opt.foldlevel = 99
 vim.opt.foldlevelstart = 99
+
+vim.opt.wrap = true       -- Enable visual wrapping
+vim.opt.linebreak = true  -- Wrap at words, not characters
+vim.opt.list = false
+-- Keep modes visually distinct in tmux: a steady Normal-mode block and fast,
+-- blinking blocks in Insert and terminal modes. TUI cursor colors come from
+-- the terminal.
+vim.opt.guicursor = "n-v-c:block,i-ci-ve:block-blinkwait150-blinkon250-blinkoff200,r-cr:hor20,o:hor50,t:block-blinkwait0-blinkon250-blinkoff200"
+vim.opt.shada = "!,'100,<50,s10,h" -- Limit ShaDa file marks/oldfiles history to 100 entries
+-- Automatically resolve symlinks to canonical paths for Git integration (Fugitive, gitsigns, etc.)
+vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
+  group = vim.api.nvim_create_augroup("ResolveSymlinks", { clear = true }),
+  callback = function(args)
+    local path = vim.api.nvim_buf_get_name(args.buf)
+    if path == "" then return end
+    local realpath = (vim.uv or vim.loop).fs_realpath(path)
+    if realpath and realpath ~= path then
+      vim.cmd("file " .. vim.fn.fnameescape(realpath))
+    end
+  end,
+})
 
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
@@ -34,11 +58,10 @@ vim.opt.rtp:prepend(lazypath)
 require("lazy").setup({
   -- Sensible defaults
   'tpope/vim-sensible',
-
-  -- Colorschemes
-  'junegunn/seoul256.vim',
-  'flazz/vim-colorschemes',
+  'MenkeTechnologies/VimColorSchemes',
   {
+    lazy = false,
+    priority = 1000,
     'xolox/vim-colorscheme-switcher',
     dependencies = { 'xolox/vim-misc' },
     config = function()
@@ -51,12 +74,20 @@ require("lazy").setup({
 
   -- Git
   'tpope/vim-fugitive',
+  {
+      "othree/eregex.vim",
+      -- Load the plugin immediately so the commands are ready
+      lazy = false,
+      config = function()
+        -- Optional: Set default options for eregex here
+        -- Example: Force case-insensitive search by default
+        vim.g.eregex_force_case = 0
+      end
+  },
 
   -- General utilities
   'tpope/vim-surround',
-  'Chiel92/vim-autoformat',
-  'preservim/nerdtree',
-
+  { 'Chiel92/vim-autoformat', cmd = "Autoformat" },
   {
       'raghur/vim-ghost',
       build = ':GhostInstall', -- This runs the python setup script
@@ -89,15 +120,70 @@ require("lazy").setup({
   'itchyny/lightline.vim',
 
   -- LSP and completion
-  'neovim/nvim-lspconfig',
-  'williamboman/mason.nvim',
-  'williamboman/mason-lspconfig.nvim',
-  'hrsh7th/nvim-cmp',
-  'hrsh7th/cmp-nvim-lsp',
-  'hrsh7th/cmp-buffer',
-  'hrsh7th/cmp-path',
-  'L3MON4D3/LuaSnip',
-  'saadparwaiz1/cmp_luasnip',
+  {
+    'neovim/nvim-lspconfig',
+    event = { "BufReadPre", "BufNewFile" },
+    dependencies = {
+      'williamboman/mason.nvim',
+      'williamboman/mason-lspconfig.nvim',
+      'hrsh7th/cmp-nvim-lsp',
+    },
+    config = function()
+      require("mason").setup()
+      require("mason-lspconfig").setup({
+        ensure_installed = { "lua_ls", "pyright", "clangd" },
+      })
+
+      local capabilities = require("cmp_nvim_lsp").default_capabilities()
+      vim.lsp.config("*", {
+        capabilities = capabilities,
+      })
+
+      vim.lsp.config("lua_ls", {
+        settings = {
+          Lua = {
+            diagnostics = { globals = { "vim" } },
+          },
+        },
+      })
+
+      vim.lsp.enable({ "lua_ls", "pyright", "clangd" })
+    end,
+  },
+  {
+    'hrsh7th/nvim-cmp',
+    event = "InsertEnter",
+    dependencies = {
+      'hrsh7th/cmp-nvim-lsp',
+      'hrsh7th/cmp-buffer',
+      'hrsh7th/cmp-path',
+      'saadparwaiz1/cmp_luasnip',
+      'L3MON4D3/LuaSnip',
+    },
+    config = function()
+      local cmp = require("cmp")
+      local luasnip = require("luasnip")
+
+      cmp.setup({
+        snippet = {
+          expand = function(args)
+            luasnip.lsp_expand(args.body)
+          end,
+        },
+        mapping = cmp.mapping.preset.insert({
+          ["<CR>"] = cmp.mapping.confirm({ select = true }),
+          ["<Tab>"] = cmp.mapping.select_next_item(),
+          ["<S-Tab>"] = cmp.mapping.select_prev_item(),
+        }),
+        sources = {
+          { name = "nvim_lsp" },
+          { name = "luasnip" },
+          { name = "buffer" },
+          { name = "path" },
+        },
+      })
+    end,
+  },
   {
     "folke/flash.nvim",
     event = "VeryLazy", -- or remove this line to load immediately
@@ -148,7 +234,9 @@ require("lazy").setup({
         function()
           require("fzf-lua").oldfiles({
             cwd_only = false,
-            include_current_session = true  -- Add this line
+            include_current_session = true,  -- Add this line
+            git_icons = false,
+            stat_file = false,
           })
         end,
         desc = "FzfLua old files (MRU) + Buffers",
@@ -166,6 +254,36 @@ require("lazy").setup({
           require("fzf-lua").tags_grep_cword()
         end,
         desc = "FzfLua grep cword",
+      },
+      {
+        "gl",
+        function()
+          local file = vim.fn.expand("%")
+          if file == "" then return end
+          require("fzf-lua").fzf_exec("global -x -f " .. vim.fn.shellescape(file) .. " | awk '{printf \"%s:%s:%s\\n\", $3, $2, substr($0, index($0,$4))}'", {
+            prompt = "Document Symbols> ",
+            fn_transform = function(x)
+              return require("fzf-lua.make_entry").file(x, { file_icons = true, color_icons = true })
+            end,
+            actions = require("fzf-lua").defaults.actions.files,
+            previewer = "builtin",
+          })
+        end,
+        desc = "GTAGS Document Symbols",
+      },
+      {
+        "gL",
+        function()
+          require("fzf-lua").fzf_exec("global -x '.*' | awk '{printf \"%s:%s:%s\\n\", $3, $2, substr($0, index($0,$4))}'", {
+            prompt = "Workspace Symbols> ",
+            fn_transform = function(x)
+              return require("fzf-lua.make_entry").file(x, { file_icons = true, color_icons = true })
+            end,
+            actions = require("fzf-lua").defaults.actions.files,
+            previewer = "builtin",
+          })
+        end,
+        desc = "GTAGS Workspace Symbols",
       },
     },
     ---@diagnostics enable: missing-fields
@@ -205,6 +323,7 @@ require("lazy").setup({
     opts = {
       size = 60,
       direction = "vertical",
+      shade_terminals = false,
       persist_size = true,
       start_in_insert = true,
       insert_mappings = true,
@@ -216,18 +335,6 @@ require("lazy").setup({
         "<cmd>ToggleTerm direction=vertical size=60<CR>",
         desc = "Toggle vertical terminal",
         mode = "n",
-      },
-    },
-  },
-  {
-    "declancm/windex.nvim",
-    keys = {
-      {
-        "<leader>z",
-        function()
-          require("windex").toggle_nvim_maximize()
-        end,
-        desc = "Maximize/restore window",
       },
     },
   },
@@ -334,12 +441,8 @@ require("lazy").setup({
       -- Enable highlighting per filetype (example: markdown)
       vim.api.nvim_create_autocmd("FileType", {
         pattern = { "markdown" },
-        callback = function() vim.treesitter.start() end,
-      })
-
-      -- Folding (Neovim-provided)
-      vim.api.nvim_create_autocmd("FileType", {
         callback = function()
+          vim.treesitter.start()
           vim.wo.foldmethod = "expr"
           vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
         end,
@@ -348,6 +451,7 @@ require("lazy").setup({
   },
   {
     "dhananjaylatkar/cscope_maps.nvim",
+    event = "VeryLazy",
     dependencies = {
       "ibhagwan/fzf-lua", -- Use fzf-lua as the UI provider
     },
@@ -360,11 +464,10 @@ require("lazy").setup({
         skip_picker_for_single_result = false, -- Jump directly if only one match
       },
       db_build_cmd = {
-        script = "ttags",
-        arags = { "-i "},
-
+        script = "sh",
+        args = { "-c", "find . -type f \\( -name '*.[ch]' -o -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.hh' \\) > gtags.files && gtags -i -f gtags.files" },
       },
-      disable_maps = false, 
+      disable_maps = false,
     },
     config = function(_, opts)
       require("cscope_maps").setup(opts)
@@ -372,6 +475,10 @@ require("lazy").setup({
   },
   {
     "stevearc/aerial.nvim",
+    cmd = { "AerialToggle", "AerialOpen", "AerialNext", "AerialPrev" },
+    keys = {
+      { "<leader>a", "<cmd>AerialToggle!<CR>", desc = "Aerial Toggle" },
+    },
     opts = {},
     config = function()
       require("aerial").setup({
@@ -382,8 +489,6 @@ require("lazy").setup({
           vim.keymap.set("n", "}", "<cmd>AerialNext<CR>", { buffer = bufnr })
         end,
       })
-      -- You probably also want to set a keymap to toggle aerial
-      vim.keymap.set("n", "<leader>a", "<cmd>AerialToggle!<CR>")
     end,
   },
   {
@@ -418,55 +523,52 @@ require("lazy").setup({
       }
     end,
   },
-})
-
-
--- LSP: mason + lspconfig
-require("mason").setup()
-
-require("mason-lspconfig").setup({
-  -- put servers you want here
-  ensure_installed = { "lua_ls", "pyright", "clangd" },
-})
-
--- nvim-cmp capabilities -> LSP completion
-local capabilities = require("cmp_nvim_lsp").default_capabilities()
-vim.lsp.config("*", {
-  capabilities = capabilities,
-})
-
-vim.lsp.config("lua_ls", {
-  settings = {
-    Lua = {
-      diagnostics = { globals = { "vim" } },
+  {
+    'renerocksai/telekasten.nvim',
+    cmd = { "Telekasten" },
+    dependencies = {
+        'nvim-telescope/telescope.nvim',
+        'nvim-lua/plenary.nvim', -- Telescope's required utility library
+        'renerocksai/calendar-vim', -- Use this specific fork instead
+    },
+    opts = {
+        home = vim.fn.expand("~/shared/downloads/md/nvim/"),
     },
   },
-})
+  {
+    "nvim-tree/nvim-tree.lua",
+    version = "*",
+    lazy = false,
+    dependencies = {
+      "nvim-tree/nvim-web-devicons", -- Optional: adds file icons
+      "s1n7ax/nvim-window-picker",
+    },
+    config = function()
+      -- Initialize the plugin
+      require("nvim-tree").setup({
+        sort = {
+          sorter = "case_sensitive",
+        },
+        view = {
+          width = 30, -- Set the sidebar width
+        },
+        filters = {
+          git_ignored = false,
+        },
+        actions = {
+          open_file = {
+            window_picker = {
+              enable = true,
+              picker = require("window-picker").pick_window,
+            },
+          },
+        },
+      })
 
--- enable servers (mason-lspconfig may auto-enable; this is safe/explicit)
-vim.lsp.enable({ "lua_ls", "pyright", "clangd" })
-
--- Completion: nvim-cmp + LuaSnip
-local cmp = require("cmp")
-local luasnip = require("luasnip")
-
-cmp.setup({
-  snippet = {
-    expand = function(args)
-      luasnip.lsp_expand(args.body)
+      -- Create your shortcut key to open it (Space + e)
+      vim.keymap.set('n', '<space>e', ':NvimTreeToggle<CR>', { silent = true })
     end,
-  },
-  mapping = cmp.mapping.preset.insert({
-    ["<CR>"] = cmp.mapping.confirm({ select = true }),
-    ["<Tab>"] = cmp.mapping.select_next_item(),
-    ["<S-Tab>"] = cmp.mapping.select_prev_item(),
-  }),
-  sources = {
-    { name = "nvim_lsp" },
-    { name = "luasnip" },
-    { name = "buffer" },
-    { name = "path" },
-  },
+  }
 })
 
 -- Other settings
@@ -487,7 +589,6 @@ vim.opt.diffopt:append('internal,algorithm:patience')
 vim.opt.clipboard:append('unnamed,unnamedplus')
 vim.cmd('color github')
 
-
 local function git_combined_diff(opts)
     local user_args = opts.args
 
@@ -495,9 +596,15 @@ local function git_combined_diff(opts)
     local buf_dir = buf_path ~= "" and vim.fn.fnamemodify(buf_path, ":h") or vim.fn.getcwd()
     local git_root = vim.trim(vim.fn.system(string.format("git -C %s rev-parse --show-toplevel", vim.fn.shellescape(buf_dir))))
 
-    if vim.v.shell_error ~= 0 then
-      print("Not a git repository")
-      return
+    if vim.v.shell_error ~= 0 or git_root == "" then
+      local fallback_dir = (vim.fn.exists("*FugitiveWorkTree") == 1 and vim.fn.FugitiveWorkTree() ~= "")
+        and vim.fn.FugitiveWorkTree()
+        or vim.fn.getcwd()
+      git_root = vim.trim(vim.fn.system(string.format("git -C %s rev-parse --show-toplevel", vim.fn.shellescape(fallback_dir))))
+      if vim.v.shell_error ~= 0 or git_root == "" then
+        print("Not a git repository")
+        return
+      end
     end
 
     local git_cmd_prefix = string.format("git -C %s ", vim.fn.shellescape(git_root))
@@ -534,14 +641,25 @@ local function git_combined_diff(opts)
         left_ref = "HEAD"
         right_ref = ":0" -- The Index
     elseif rev_part ~= "" and not rev_part:find("^-") then
+      -- Handle two refs like 'commit1 commit2'
+      local first_word, second_word = rev_part:match("^(%S+)%s+(%S+)")
+      if first_word and second_word then
+        local verify1 = os.execute(string.format("%srev-parse --verify %s >/dev/null 2>&1", git_cmd_prefix, first_word))
+        local verify2 = os.execute(string.format("%srev-parse --verify %s >/dev/null 2>&1", git_cmd_prefix, second_word))
+        if verify1 == 0 and verify2 == 0 then
+          left_ref = first_word
+          right_ref = second_word
+        end
+      else
         -- Handle single ref like 'HEAD~1' or 'master'
         local first_word = rev_part:match("^(%S+)")
         -- Verify if it's a valid git object
         local verify = os.execute(string.format("%srev-parse --verify %s >/dev/null 2>&1", git_cmd_prefix, first_word))
         if verify == 0 then
-            left_ref = first_word
-            right_ref = "" -- Compare against disk
+          left_ref = first_word
+          right_ref = "" -- Compare against disk
         end
+      end
     end
 
     -- 3. Create UI
@@ -584,6 +702,8 @@ local function git_combined_diff(opts)
 
     -- 5. Finalize Buffers
     local function setup_buf(buf, lines, name)
+        vim.bo[buf].swapfile = false
+        vim.bo[buf].undofile = false
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
         vim.bo[buf].buftype, vim.bo[buf].bufhidden, vim.bo[buf].filetype = "nofile", "wipe", "diff"
         pcall(vim.api.nvim_buf_set_name, buf, name .. " [" .. (user_args ~= "" and user_args or "WD") .. "]")
@@ -602,15 +722,29 @@ end
 
 vim.api.nvim_create_user_command('GdiffCombined', git_combined_diff, { nargs = '*' })
 
-vim.keymap.set("n", "\\gd1", function()
-  -- opens ":" command-line with the command prefilled, cursor at end
-  vim.fn.feedkeys(":GdiffCombined ", "n")
-end, { noremap = true, silent = true, desc = "Prompt :GdiffCombined [arg]" })
+vim.keymap.set("n", "gf1", ":GdiffCombined<CR>", {
+  noremap = true,
+  silent = true,
+  desc = "Execute :GdiffCombined directly"
+})
 
-vim.keymap.set("n", "\\gd2", ":GdiffCombined <C-R><C-W>~1..<C-R><C-W><CR>", {
+vim.keymap.set("n", "gf2", ":GdiffCombined <C-R><C-W>~1..<C-R><C-W><CR>", {
   noremap = true,
   silent = false,
   desc = "GdiffCombined current_file~ then complete and execute"
+})
+
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "fugitive",
+  callback = function(ev)
+    local function open_tab_diff()
+      -- Trigger Fugitive's buffer mapping 'O' (open in tab) then run :Gdiffsplit!
+      local keys = vim.api.nvim_replace_termcodes("O:Gdiffsplit!<CR>", true, false, true)
+      vim.api.nvim_feedkeys(keys, "m", false)
+    end
+
+    vim.keymap.set("n", "dt", open_tab_diff, { buffer = ev.buf, silent = true, desc = "Open side-by-side diff in new tab" })
+  end,
 })
 
 vim.api.nvim_create_autocmd("LspAttach", {
@@ -630,16 +764,16 @@ local function set_tmux_title()
   local file = vim.fn.expand("%:t")
   if file == "" then file = "[No Name]" end
 
-  vim.fn.system({
+  vim.system({
     "tmux",
     "select-pane",
     "-T",
     file
-  })
+  }, { detach = true })
 end
 
 vim.api.nvim_create_autocmd(
-  { "BufEnter", "BufWinEnter", "BufFilePost" },
+  { "BufEnter", "BufFilePost" },
   {
     callback = set_tmux_title,
   }
@@ -670,6 +804,86 @@ vim.api.nvim_create_user_command('CsUpdateCurrent', function()
   end)
 end, {})
 
-
-
 vim.keymap.set("t", "jk", [[<C-\><C-n>]], { desc = "Terminal: normal mode" })
+
+vim.keymap.set("n", "gx", function()
+  local url = vim.fn.expand("<cfile>")
+  if url:match("https?://") then
+    -- jobstart launches the process in the background and doesn't wait
+    vim.fn.jobstart({ "xdg-open", url }, { detach = true })
+  end
+end, { desc = "Async open link" })
+
+vim.keymap.set('n', '<space>t', function()
+  local home = vim.fn.expand("~/shared/downloads/md/nvim/")
+  require('telescope.builtin').live_grep({
+    cwd = home,
+    default_text = "@"
+  })
+end, { desc = "Search @tags in Telekasten" })
+
+vim.keymap.set('n', '<space>f', '<C-w>gf', { desc = 'Open file under cursor in new tab' })
+vim.keymap.set('n', '<leader>p', [[:let @+ = expand('%:p')<CR>]], { silent = true })
+
+-- Set the ANSI palette used when a terminal opens. Existing terminal buffers
+-- retain their palette, so open a new terminal after changing schemes.
+local function set_terminal_palette()
+  local function color(group, attribute, fallback)
+    local highlight = vim.api.nvim_get_hl(0, { name = group, link = false })
+    return highlight[attribute] and string.format("#%06x", highlight[attribute]) or fallback
+  end
+
+  local background = color("Normal", "bg", "#1e1e1e")
+  local foreground = color("Normal", "fg", "#d4d4d4")
+  local red = color("DiagnosticError", "fg", color("ErrorMsg", "fg", "#e06c75"))
+  local green = color("DiagnosticOk", "fg", color("String", "fg", "#98c379"))
+  local yellow = color("DiagnosticWarn", "fg", color("WarningMsg", "fg", "#e5c07b"))
+  local blue = color("DiagnosticInfo", "fg", color("Function", "fg", "#61afef"))
+  local magenta = color("DiagnosticHint", "fg", color("Statement", "fg", "#c678dd"))
+  local cyan = color("Special", "fg", color("Constant", "fg", "#56b6c2"))
+  local gray = color("Comment", "fg", "#5c6370")
+  local palette = {
+    background, red, green, yellow, blue, magenta, cyan, foreground,
+    gray, red, green, yellow, blue, magenta, cyan, foreground,
+  }
+
+  for index, value in ipairs(palette) do
+    vim.g["terminal_color_" .. (index - 1)] = value
+  end
+end
+
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = vim.api.nvim_create_augroup("TerminalPalette", { clear = true }),
+  callback = set_terminal_palette,
+})
+set_terminal_palette()
+
+vim.keymap.set('n', '<leader>z', function()
+  if vim.t.buffer_maximized then
+    vim.cmd('tabclose')
+    return
+  end
+
+  vim.cmd('tabedit %')
+  vim.t.buffer_maximized = true
+end, { desc = 'Toggle current buffer maximization' })
+
+vim.api.nvim_create_user_command('Codex', function()
+    local codex_bin = vim.fn.exepath('codex')
+    if codex_bin == '' then
+      codex_bin = 'codex'
+    end
+    vim.cmd('terminal env FORCE_COLOR=1 ' .. vim.fn.fnameescape(codex_bin))
+end, {})
+
+vim.api.nvim_create_user_command('Agy', function(opts)
+    local agy_bin = vim.fn.exepath('agy')
+    if agy_bin == '' then
+      agy_bin = 'agy'
+    end
+    local cmd = 'terminal env FORCE_COLOR=1 ' .. vim.fn.fnameescape(agy_bin)
+    if opts.args and opts.args ~= '' then
+      cmd = cmd .. ' ' .. opts.args
+    end
+    vim.cmd(cmd)
+end, { nargs = '*' })
