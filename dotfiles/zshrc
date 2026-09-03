@@ -8,7 +8,6 @@ export ZSH="$HOME/.oh-my-zsh"
 # load a random theme each time oh-my-zsh is loaded, in which case,
 # to know which specific one was loaded, run: echo $RANDOM_THEME
 # See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
-# ZSH_THEME="robbyrussell"
 ZSH_THEME="minimal"
 
 # Set list of themes to pick from when loading at random
@@ -76,55 +75,132 @@ plugins=(git)
 source $ZSH/oh-my-zsh.sh
 
 # User configuration
+export HISTSIZE=100000
+export SAVEHIST=100000
 
-# export MANPATH="/usr/local/man:$MANPATH"
+# Aliases
+alias ll='ls -alFG'
+alias la='ls -A'
+alias l='ls -CF'
 
-# You may need to manually set your language environment
-# export LANG=en_US.UTF-8
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
 
-# Preferred editor for local and remote sessions
-# if [[ -n $SSH_CONNECTION ]]; then
-#   export EDITOR='vim'
-# else
-#   export EDITOR='mvim'
-# fi
+# Neovim / vi
+if command -v /snap/bin/nvim >/dev/null 2>&1; then
+  alias nvim='/snap/bin/nvim'
+  alias vi='nvim'
+  alias vimdiff='/snap/bin/nvim -d'
+  export VISUAL='/snap/bin/nvim'
+elif command -v nvim >/dev/null 2>&1; then
+  alias vi='nvim'
+  alias vimdiff='nvim -d'
+  export VISUAL='nvim'
+else
+  alias vi='vim'
+  export VISUAL='vim'
+fi
+export EDITOR="$VISUAL"
 
-# Compilation flags
-# export ARCHFLAGS="-arch x86_64"
+# Alert alias
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  alias alert='osascript -e '\''display notification "Command finished" with title "Terminal"'\'''
+else
+  alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
+fi
 
-# Set personal aliases, overriding those provided by oh-my-zsh libs,
-# plugins, and themes. Aliases can be placed here, though oh-my-zsh
-# users are encouraged to define aliases within the ZSH_CUSTOM folder.
-# For a full list of active aliases, run `alias`.
-#
-# Example aliases
-# alias zshconfig="mate ~/.zshrc"
-# alias ohmyzsh="mate ~/.oh-my-zsh"
+[[ -f "$HOME/shared/repos/yt-dlp/yt_dlp/__main__.py" ]] && alias yd="python $HOME/shared/repos/yt-dlp/yt_dlp/__main__.py --no-mtime"
 
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-PATH="$PATH:/Library/TeX/texbin/latexmk:/usr/local/bin"
-alias vi='nvim'
-set -o vi
-export NVM_DIR="$HOME/.nvm"
-[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && . "/opt/homebrew/opt/nvm/nvm.sh"
-export NVM_DIR="$HOME/.nvm"
-[ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh"
-[ -s "/usr/local/opt/nvm/etc/bash_completion.d/nvm" ] && . "/usr/local/opt/nvm/etc/bash_completion.d/nvm"
-alias ctags='/usr/local/bin/ctags'
+if command -v python3.12 >/dev/null 2>&1; then
+  alias python="python3.12"
+  alias python3="python3.12"
+elif command -v python3 >/dev/null 2>&1; then
+  alias python="python3"
+fi
 
-function zle-keymap-select {
-  if [[ ${KEYMAP} == vicmd ]]; then
-    echo -ne '\e[2 q' # Block cursor for Normal mode
-  else
-    echo -ne '\e[5 q' # Beam/Vertical bar for Insert mode
+[[ -x "$HOME/.local/bin/codex" ]] && alias codex="FORCE_COLOR=1 $HOME/.local/bin/codex"
+[[ -x "/usr/local/bin/ctags" ]] && alias ctags='/usr/local/bin/ctags'
+
+# Environment variables
+export LC_ALL=en_US.UTF-8 
+export LANG="$LC_ALL" 
+export CPPFLAGS=-U_FORTIFY_SOURCE
+[[ -d "$HOME/ffmpeg_build/lib/pkgconfig" ]] && export PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig:$PKG_CONFIG_PATH"
+[[ -d "$HOME/repos/go" ]] && export GOPATH="$HOME/repos/go"
+export GTAGSLABEL=pygments
+export GEMINI_API_KEY="AIzaSyA4qJCFomAqpG16zXA7BE6Uomc03zNzun8"
+export SVGA_VGPU10=1
+
+# PATH configuration (cross-platform)
+path_dirs=(
+  "$HOME/.local/bin"
+  "$HOME/.opencode/bin"
+  "$HOME/bin/dev_ssh_scripts"
+  "$HOME/bin"
+  "$HOME/myrepo"
+  "/opt/homebrew/bin"
+  "/opt/homebrew/sbin"
+  "/usr/local/bin"
+  "/usr/local/opt/bin"
+  "/Library/TeX/texbin"
+)
+for dir in "${path_dirs[@]}"; do
+  if [[ -d "$dir" && ":$PATH:" != *":$dir:"* ]]; then
+    export PATH="$dir:$PATH"
   fi
-}
-zle -N zle-keymap-select
-zle-line-init() {
-    zle -K viins # Initial mode is insert
-    echo -ne '\e[5 q'
-}
+done
+
+# Vi mode & Cursor settings
+bindkey -v
 export KEYTIMEOUT=1
 
-export GEMINI_API_KEY="AIzaSyA_U8TigTLv13tBdRp3RUXC3EAI10U30Gw"
-export PATH="/usr/local/bin:/usr/local/opt/bin:$PATH"
+_set_cursor() {
+  printf '\e[%s q' "$1"
+}
+
+zle-keymap-select () {
+  case $KEYMAP in
+    vicmd)      _set_cursor 2 ;; # Steady Block for Normal mode
+    viins|main) _set_cursor 1 ;; # Blinking Block for Insert mode
+  esac
+}
+zle -N zle-keymap-select
+
+zle-line-init () {
+  zle -K viins
+  _set_cursor 1
+}
+zle -N zle-line-init
+
+zle-line-finish () {
+  _set_cursor 2
+}
+zle -N zle-line-finish
+
+precmd() {
+  _set_cursor 1 # Reset to blinking block on each new prompt
+}
+
+# Auto-start tmux (if installed and interactive)
+if command -v tmux >/dev/null 2>&1 && [ ! "$TMUX" ]; then
+    tmux attach -t main 2>/dev/null || tmux new -s main
+fi
+
+export LS_COLORS="$LS_COLORS:ow=1;34:tw=1;34:"
+#
+# Conda (if present on macOS / Linux)
+if [ -d "/usr/local/Caskroom/miniconda/base" ]; then
+  __conda_setup="$('/usr/local/Caskroom/miniconda/base/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
+  if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+  fi
+  unset __conda_setup
+fi
+
+# FZF
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+# SDKMAN (must be at the end of the file)
+export SDKMAN_DIR="$HOME/.sdkman"
+[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh" 
